@@ -11,12 +11,11 @@
     h1 { text-align: center; color: #38bdf8; font-size: 1.8rem; margin-bottom: 24px; }
     .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
     label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px; }
-    input { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #fff; font-size: 1rem; margin-bottom: 12px; }
+    input, select { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #fff; font-size: 1rem; margin-bottom: 12px; }
     button { width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; cursor: pointer; transition: background 0.2s; margin-bottom: 8px; }
     button:disabled { background: #475569; cursor: not-allowed; }
-    .btn-secondary { background: #334155; color: #cbd5e1; }
     .preview-box { text-align: center; margin-top: 16px; display: none; }
-    .preview-box img { width: 100%; border-radius: 8px; margin-bottom: 12px; }
+    .preview-box img { width: 100%; border-radius: 8px; margin-bottom: 12px; min-height: 150px; background: #0f172a; }
     .status-msg { margin-top: 12px; text-align: center; font-size: 0.9rem; font-weight: bold; }
   </style>
 </head>
@@ -34,10 +33,16 @@
 
     <!-- Search & Add Box -->
     <div class="card">
-      <label for="modelInput">Search Model Username</label>
-      <input type="text" id="modelInput" placeholder="e.g. monicarossi95">
+      <label for="platformSelect">Select Platform</label>
+      <select id="platformSelect">
+        <option value="chaturbate">Chaturbate</option>
+        <option value="stripchat">Stripchat</option>
+        <option value="cam4">Cam4</option>
+      </select>
+
+      <label for="modelInput">Model Username</label>
+      <input type="text" id="modelInput" placeholder="e.g. model_username">
       <button id="searchBtn" onclick="searchModel()">🔍 Check Live Status & Preview</button>
-      <button id="quickAddBtn" class="btn-secondary" onclick="addModelToWatchlist()">➕ Add to Watchlist (Skip Preview)</button>
 
       <div id="previewBox" class="preview-box">
         <img id="thumbImg" src="" alt="Live Preview">
@@ -57,43 +62,45 @@
       localStorage.setItem('repo_name', document.getElementById('repoName').value.trim());
     }
 
-    async function searchModel() {
+    function searchModel() {
+      const platform = document.getElementById('platformSelect').value;
       const username = document.getElementById('modelInput').value.trim().toLowerCase();
       const statusDiv = document.getElementById('status');
       const previewBox = document.getElementById('previewBox');
+      const img = document.getElementById('thumbImg');
       
       if (!username) return alert('Please enter a model username');
 
       statusDiv.style.color = '#38bdf8';
-      statusDiv.innerText = 'Checking model room...';
-      previewBox.style.display = 'none';
+      statusDiv.innerText = `Fetching ${platform} preview...`;
+      previewBox.style.display = 'block';
 
-      try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://chaturbate.com/' + username + '/')}`;
-        const res = await fetch(proxyUrl);
-        const data = await res.json();
-        
-        // If room page loads and isn't 404
-        if (data.contents && !data.contents.includes('404 Page Not Found')) {
-          const thumbUrl = `https://roomimg.stream.highwebmedia.com/ri/${username}.jpg?t=${Date.now()}`;
-          document.getElementById('thumbImg').src = thumbUrl;
-          previewBox.style.display = 'block';
-          statusDiv.style.color = '#4ade80';
-          statusDiv.innerText = `Model "${username}" room found!`;
-        } else {
-          statusDiv.style.color = '#f87171';
-          statusDiv.innerText = `Model "${username}" does not exist on Chaturbate.`;
-        }
-      } catch (e) {
+      img.referrerPolicy = "no-referrer";
+      
+      img.onload = () => {
+        statusDiv.style.color = '#4ade80';
+        statusDiv.innerText = `Model "${username}" snapshot loaded!`;
+      };
+
+      img.onerror = () => {
         statusDiv.style.color = '#facc15';
-        statusDiv.innerText = 'Could not fetch preview. You can still tap "Add to Watchlist" below!';
-        previewBox.style.display = 'block';
+        statusDiv.innerText = `Preview thumbnail offline or unavailable. You can still add "${username}" below!`;
+      };
+
+      // Set thumbnail URL based on platform CDN
+      if (platform === 'chaturbate') {
+        img.src = `https://roomimg.stream.highwebmedia.com/ri/${username}.jpg?_=${Date.now()}`;
+      } else if (platform === 'stripchat') {
+        img.src = `https://img.strpcdn.com/thumbs/${username}/preview.jpg?_=${Date.now()}`;
+      } else if (platform === 'cam4') {
+        img.src = `https://snapshot.cam4.com/${username}?_=${Date.now()}`;
       }
     }
 
     async function addModelToWatchlist() {
       const token = localStorage.getItem('pat_token');
       const repo = localStorage.getItem('repo_name');
+      const platform = document.getElementById('platformSelect').value;
       const username = document.getElementById('modelInput').value.trim().toLowerCase();
       const statusDiv = document.getElementById('status');
 
@@ -103,7 +110,16 @@
       statusDiv.style.color = '#38bdf8';
       statusDiv.innerText = 'Updating models.txt on GitHub...';
 
-      const targetUrl = `https://chaturbate.com/${username}/`;
+      // Build target room URL depending on selected platform
+      let targetUrl = '';
+      if (platform === 'chaturbate') {
+        targetUrl = `https://chaturbate.com/${username}/`;
+      } else if (platform === 'stripchat') {
+        targetUrl = `https://stripchat.com/${username}/`;
+      } else if (platform === 'cam4') {
+        targetUrl = `https://www.cam4.com/${username}`;
+      }
+
       const githubApiUrl = `https://api.github.com/repos/${repo}/contents/models.txt`;
 
       try {
@@ -116,9 +132,9 @@
         
         const currentContent = atob(fileData.content);
         
-        if (currentContent.includes(targetUrl) || currentContent.includes(username)) {
+        if (currentContent.includes(targetUrl) || (currentContent.includes(username) && currentContent.includes(platform))) {
           statusDiv.style.color = '#facc15';
-          statusDiv.innerText = `"${username}" is already in your models.txt!`;
+          statusDiv.innerText = `"${username}" on ${platform} is already in your models.txt!`;
           return;
         }
 
@@ -133,7 +149,7 @@
             'Accept': 'application/vnd.github.v3+json'
           },
           body: JSON.stringify({
-            message: `Add ${username} to watchlist via Web Dashboard`,
+            message: `Add ${username} (${platform}) via Web Dashboard`,
             content: encodedContent,
             sha: fileData.sha
           })
@@ -141,7 +157,7 @@
 
         if (putRes.ok) {
           statusDiv.style.color = '#4ade80';
-          statusDiv.innerText = `Successfully added ${username}! Recording script will pick it up on next run.`;
+          statusDiv.innerText = `Successfully added ${username} (${platform})! Recording script will pick it up on next run.`;
         } else {
           throw new Error('Failed to update models.txt');
         }
