@@ -23,19 +23,18 @@ def send_telegram_video(video_path, caption=""):
         )
     print("Telegram upload response:", response.status_code)
 
-def check_and_record(url):
-    url = url.strip()
-    if not url or url.startswith("#"):
+def check_and_record(raw_url):
+    # Strip whitespace, newlines, and trailing slashes
+    clean_url = raw_url.strip().rstrip('/')
+    if not clean_url or clean_url.startswith("#"):
         return
 
-    # Format model name safely
-    clean_url = url.rstrip('/')
     model_name = clean_url.split('/')[-1]
     output_filename = f"{model_name}.mp4"
 
-    print(f"\nChecking {url}...")
+    print(f"\nChecking: {clean_url}")
 
-    # Build streamlink CLI command with browser bypass headers
+    # Build streamlink CLI command with Chrome headers
     cmd = [
         "streamlink",
         "--http-header", "User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -47,30 +46,26 @@ def check_and_record(url):
     ]
 
     try:
-        # Run streamlink for up to RECORD_SECONDS
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         
         try:
-            # Wait for recording window
             stdout, _ = process.communicate(timeout=RECORD_SECONDS)
             print(stdout)
         except subprocess.TimeoutExpired:
-            # Time reached, stop streamlink cleanly
             process.terminate()
-            print(f"Captured {RECORD_SECONDS} seconds of stream for {model_name}.")
+            print(f"Recorded segment for {model_name}.")
 
-        # Check if output file was created and contains data
         if os.path.exists(output_filename) and os.path.getsize(output_filename) > 100000:
-            print(f"Successfully recorded {output_filename}. Uploading to Telegram...")
+            print(f"Uploading {output_filename} to Telegram...")
             send_telegram_video(output_filename, f"📹 Recorded live stream: {model_name}")
             os.remove(output_filename)
         else:
-            print(f"{model_name} was offline or stream could not be captured.")
+            print(f"{model_name} is offline or no stream captured.")
             if os.path.exists(output_filename):
                 os.remove(output_filename)
 
     except Exception as e:
-        print(f"Error processing {url}: {e}")
+        print(f"Error processing {clean_url}: {e}")
 
 def main():
     if not os.path.exists(MODELS_FILE):
