@@ -13,9 +13,6 @@
     label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px; }
     input, select { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #fff; font-size: 1rem; margin-bottom: 12px; }
     button { width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; cursor: pointer; transition: background 0.2s; margin-bottom: 8px; }
-    button:disabled { background: #475569; cursor: not-allowed; }
-    .preview-box { text-align: center; margin-top: 16px; display: none; }
-    .preview-box img { width: 100%; border-radius: 8px; margin-bottom: 12px; min-height: 150px; background: #0f172a; }
     .status-msg { margin-top: 12px; text-align: center; font-size: 0.9rem; font-weight: bold; }
   </style>
 </head>
@@ -23,7 +20,6 @@
   <div class="container">
     <h1>📹 CamVault Control</h1>
 
-    <!-- Configuration Box -->
     <div class="card">
       <label for="patToken">GitHub Personal Access Token</label>
       <input type="password" id="patToken" placeholder="github_pat_..." onchange="saveToken()">
@@ -31,7 +27,6 @@
       <input type="text" id="repoName" placeholder="fudddino/cam-recorder" onchange="saveToken()">
     </div>
 
-    <!-- Search & Add Box -->
     <div class="card">
       <label for="platformSelect">Select Platform</label>
       <select id="platformSelect">
@@ -41,13 +36,8 @@
       </select>
 
       <label for="modelInput">Model Username</label>
-      <input type="text" id="modelInput" placeholder="e.g. model_username">
-      <button id="searchBtn" onclick="searchModel()">🔍 Check Live Status & Preview</button>
-
-      <div id="previewBox" class="preview-box">
-        <img id="thumbImg" src="" alt="Live Preview">
-        <button id="addBtn" onclick="addModelToWatchlist()">🔴 Add to Recording Watchlist</button>
-      </div>
+      <input type="text" id="modelInput" placeholder="e.g. monicarossi95">
+      <button id="addBtn" onclick="addModelToWatchlist()">🔴 Add to Recording Watchlist</button>
 
       <div id="status" class="status-msg"></div>
     </div>
@@ -60,41 +50,6 @@
     function saveToken() {
       localStorage.setItem('pat_token', document.getElementById('patToken').value.trim());
       localStorage.setItem('repo_name', document.getElementById('repoName').value.trim());
-    }
-
-    function searchModel() {
-      const platform = document.getElementById('platformSelect').value;
-      const username = document.getElementById('modelInput').value.trim().toLowerCase();
-      const statusDiv = document.getElementById('status');
-      const previewBox = document.getElementById('previewBox');
-      const img = document.getElementById('thumbImg');
-      
-      if (!username) return alert('Please enter a model username');
-
-      statusDiv.style.color = '#38bdf8';
-      statusDiv.innerText = `Fetching ${platform} preview...`;
-      previewBox.style.display = 'block';
-
-      img.referrerPolicy = "no-referrer";
-      
-      img.onload = () => {
-        statusDiv.style.color = '#4ade80';
-        statusDiv.innerText = `Model "${username}" snapshot loaded!`;
-      };
-
-      img.onerror = () => {
-        statusDiv.style.color = '#facc15';
-        statusDiv.innerText = `Preview thumbnail offline or unavailable. You can still add "${username}" below!`;
-      };
-
-      // Set thumbnail URL based on platform CDN
-      if (platform === 'chaturbate') {
-        img.src = `https://roomimg.stream.highwebmedia.com/ri/${username}.jpg?_=${Date.now()}`;
-      } else if (platform === 'stripchat') {
-        img.src = `https://img.strpcdn.com/thumbs/${username}/preview.jpg?_=${Date.now()}`;
-      } else if (platform === 'cam4') {
-        img.src = `https://snapshot.cam4.com/${username}?_=${Date.now()}`;
-      }
     }
 
     async function addModelToWatchlist() {
@@ -110,12 +65,12 @@
       statusDiv.style.color = '#38bdf8';
       statusDiv.innerText = 'Updating models.txt on GitHub...';
 
-      // Build target room URL depending on selected platform
+      // Standardize domain structure for Streamlink matching
       let targetUrl = '';
       if (platform === 'chaturbate') {
         targetUrl = `https://chaturbate.com/${username}/`;
       } else if (platform === 'stripchat') {
-        targetUrl = `https://stripchat.com/${username}/`;
+        targetUrl = `https://stripchat.com/${username}`;
       } else if (platform === 'cam4') {
         targetUrl = `https://www.cam4.com/${username}`;
       }
@@ -132,13 +87,13 @@
         
         const currentContent = atob(fileData.content);
         
-        if (currentContent.includes(targetUrl) || (currentContent.includes(username) && currentContent.includes(platform))) {
+        if (currentContent.includes(targetUrl)) {
           statusDiv.style.color = '#facc15';
-          statusDiv.innerText = `"${username}" on ${platform} is already in your models.txt!`;
+          statusDiv.innerText = `"${username}" is already in your models.txt!`;
           return;
         }
 
-        const updatedContent = currentContent.trim() + '\n' + targetUrl + '\n';
+        const updatedContent = (currentContent.trim() + '\n' + targetUrl).trim() + '\n';
         const encodedContent = btoa(updatedContent);
 
         const putRes = await fetch(githubApiUrl, {
@@ -157,7 +112,7 @@
 
         if (putRes.ok) {
           statusDiv.style.color = '#4ade80';
-          statusDiv.innerText = `Successfully added ${username} (${platform})! Recording script will pick it up on next run.`;
+          statusDiv.innerText = `Successfully added ${username} (${platform})!`;
         } else {
           throw new Error('Failed to update models.txt');
         }
