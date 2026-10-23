@@ -2,13 +2,12 @@ import os
 import sys
 import subprocess
 import requests
-import streamlink
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 MODELS_FILE = "models.txt"
-RECORD_SECONDS = 180  # 3-minute test recording per run
+RECORD_SECONDS = 180  # 3 minutes
 
 def send_telegram_video(video_path, caption=""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -22,55 +21,56 @@ def send_telegram_video(video_path, caption=""):
             data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption},
             files={"video": video_file}
         )
-    print("Telegram response:", response.status_code)
+    print("Telegram upload response:", response.status_code)
 
 def check_and_record(url):
     url = url.strip()
     if not url or url.startswith("#"):
         return
 
-    print(f"Checking {url}...")
-    
-    # Configure Streamlink session with custom headers to bypass Cloudflare
-    session = streamlink.Streamlink()
-    session.set_option("http-headers", {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    })
+    # Format model name safely
+    clean_url = url.rstrip('/')
+    model_name = clean_url.split('/')[-1]
+    output_filename = f"{model_name}.mp4"
+
+    print(f"\nChecking {url}...")
+
+    # Build streamlink CLI command with browser bypass headers
+    cmd = [
+        "streamlink",
+        "--http-header", "User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "--http-header", "Accept-Language=en-US,en;q=0.9",
+        "--output", output_filename,
+        clean_url,
+        "best",
+        "--force"
+    ]
 
     try:
-        streams = session.streams(url)
-        if not streams:
-            print(f"Offline or stream unresolvable: {url}")
-            return
+        # Run streamlink for up to RECORD_SECONDS
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         
-        # Pick best available stream quality
-        stream_url = streams['best'].to_url()
-        model_name = url.rstrip('/').split('/')[-1]
-        output_filename = f"{model_name}_recording.mp4"
-        
-        print(f"🔴 {model_name} IS LIVE! Recording {RECORD_SECONDS}s...")
-        
-        # Record stream segment via FFmpeg
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-y",
-            "-headers", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n",
-            "-i", stream_url,
-            "-t", str(RECORD_SECONDS),
-            "-c", "copy",
-            output_filename
-        ]
-        
-        subprocess.run(ffmpeg_cmd, check=True)
-        
-        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
+        try:
+            # Wait for recording window
+            stdout, _ = process.communicate(timeout=RECORD_SECONDS)
+            print(stdout)
+        except subprocess.TimeoutExpired:
+            # Time reached, stop streamlink cleanly
+            process.terminate()
+            print(f"Captured {RECORD_SECONDS} seconds of stream for {model_name}.")
+
+        # Check if output file was created and contains data
+        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 100000:
+            print(f"Successfully recorded {output_filename}. Uploading to Telegram...")
             send_telegram_video(output_filename, f"📹 Recorded live stream: {model_name}")
             os.remove(output_filename)
         else:
-            print("Recording file empty or failed.")
+            print(f"{model_name} was offline or stream could not be captured.")
+            if os.path.exists(output_filename):
+                os.remove(output_filename)
 
     except Exception as e:
-        print(f"Error checking/recording {url}: {e}")
+        print(f"Error processing {url}: {e}")
 
 def main():
     if not os.path.exists(MODELS_FILE):
